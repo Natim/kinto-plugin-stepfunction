@@ -25,6 +25,6 @@ def includeme(config):
 
 def load_from_config(config):
     settings = config.get_settings()
-    access_key = aslist(settings.get('stepfunction.aws_access_key', ''))
-    secret_key = aslist(settings.get('stepfunction.aws_secret_key', ''))
+    access_key = settings.get('stepfunction.aws_access_key', '')
+    secret_key = settings.get('stepfunction.aws_secret_key', '')
     return (access_key, secret_key)
