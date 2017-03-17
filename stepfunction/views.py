@@ -60,7 +60,7 @@ def get_answer_from_body(request):
     except ValueError as err:
         raise Exception("The body couldn't be parsed to json: ".format(err))
 
-    answer = query.get('answer', None)
+    answer = query.get('answer')
     if answer is None:
         raise Exception("The body needs an 'answer' (FAIL or SUCCEED)")
     if answer not in ['FAIL', 'SUCCEED']:
@@ -74,7 +74,7 @@ def get_activity_arn(record, client):
     # Get the list of activities for this stepfunction, and make sure the
     # activityArn from the record is present in the list of activities waiting
     # for an answer.
-    activity_arn = record.get('activityArn', None)
+    activity_arn = record.get('activityArn')
     if activity_arn is None:
         raise Exception("The record doesn't have an activityArn")
     activity_list = client.list_activities()
@@ -95,6 +95,15 @@ def get_task_token(activity_arn, client):
     return task_token['taskToken']
 
 
+def update_record(storage, record):
+    """Save the record in the database."""
+    storage.update(
+        object_id=record['id'],
+        collection_id="record",
+        parent_id="/buckets/stepfunction/collections/manual_steps",
+        record=record)
+
+
 @stepfunction.post()
 def post_manual_step(request):
     # Get the record.
@@ -105,7 +114,6 @@ def post_manual_step(request):
             collection_id="record",
             parent_id="/buckets/stepfunction/collections/manual_steps")
     except RecordNotFoundError as error:
-        # logger.exception(error)
         return {"error": "Record not found"}
 
     try:
@@ -125,10 +133,13 @@ def post_manual_step(request):
         activity_arn = get_activity_arn(record, client)
         print("activityArn:", activity_arn)
 
-        # And get its task token.
-        task_token = get_task_token(activity_arn, client)
-        print("Task token:", task_token)
-
+        # And get its task token if we didn't already have it.
+        task_token = record.get('taskToken')
+        if task_token is None:
+            task_token = get_task_token(activity_arn, client)
+            print("Got task token:", task_token)
+            record['taskToken'] = task_token
+            update_record(request.registry.storage, record)
 
         # Post a succeed or fail to the stepfunction's activity.
         if answer == "FAIL":
@@ -144,10 +155,6 @@ def post_manual_step(request):
                 taskToken=task_token,
                 output='{"message": "signed off"}')
             record['status'] = "SUCCEED"
-        request.registry.storage.update(
-            object_id=record_id,
-            collection_id="record",
-            parent_id="/buckets/stepfunction/collections/manual_steps",
-            record=record)
+        update_record(request.registry.storage, record)
     except Exception as err:
         return {"error": err}
