@@ -3,6 +3,11 @@
 {
   "type": "object",
   "properties": {
+    "subject": {
+      "type": "string",
+      "title": "Subject",
+      "description": "Step description"
+    },
     "stateMachineArn": {
       "type": "string",
       "title": "stateMachineArn",
@@ -18,11 +23,11 @@
       "title": "status",
       "description": "Status of the step, FAIL or SUCCEED",
       "enum": [
-        "Unanswered",
-        "Fail",
-        "Succeed"
+        "UNANSWERED",
+        "FAIL",
+        "SUCCEED"
       ],
-      "default": "Unanswered"
+      "default": "UNANSWERED"
     }
   }
 }
