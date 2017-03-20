@@ -12,7 +12,7 @@ def get_record(request):
 
 def update_record(request, record):
     """Save the record in the database."""
-    request.storage.update(
+    request.registry.storage.update(
         object_id=record['id'],
         collection_id="record",
         record=record,

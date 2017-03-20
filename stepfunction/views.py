@@ -70,6 +70,8 @@ stepfunction = Service(
 
 class RecordSchema(colander.MappingSchema):
     id = colander.SchemaNode(colander.String())
+    subject = colander.SchemaNode(colander.String(), missing=colander.drop)
+    stateMachineArn = colander.SchemaNode(colander.String(), missing=colander.drop)
     activityArn = colander.SchemaNode(colander.String())
     taskToken = colander.SchemaNode(colander.String(), missing=colander.drop)
 
