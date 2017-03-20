@@ -114,6 +114,9 @@ POST a `FAIL` or `SUCCEED` to
 https://kinto.dev.mozaws.net/v1/buckets/stepfunction/collection/manual_steps/records/<record_id>/stepfunction
 and it'll update the stepfunction execution accordingly.
 
+The most convenient way to do this POST is via
+https://addons-shipping.github.io/stepfunction-dashboard/
+
 
 Authors
 -------
