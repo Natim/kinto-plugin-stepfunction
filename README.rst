@@ -66,8 +66,14 @@ Test the lambda with the following event::
     {
       "data": {
         "data": {
+          "subject": "Please review and sign-off (or not) on this addon",
           "stateMachineArn": "arn:aws:states:us-west-2:927034868273:stateMachine:AddonSigningManualStep",
           "activityArn": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest"
+        },
+        "permissions": {
+          "write": [
+            "portier:email@example.com"
+          ]
         }
       },
       "options": {
