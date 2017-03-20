@@ -28,6 +28,16 @@
         "SUCCEED"
       ],
       "default": "UNANSWERED"
+    },
+    "taskToken": {
+      "type": "string",
+      "title": "taskToken",
+      "description": "taskToken for the manual step"
+    },
+    "reviewer": {
+      "type": "string",
+      "title": "email",
+      "description": "Reviewer's email"
     }
   }
 }
@@ -37,9 +47,12 @@ The UISchema for the records is:
 
 {
   "ui:order": [
+    "subject",
     "stateMachineArn",
     "activityArn",
-    "status"
+    "status",
+    "taskToken",
+    "reviewer"
   ]
 }
 
@@ -74,6 +87,7 @@ class RecordSchema(colander.MappingSchema):
     stateMachineArn = colander.SchemaNode(colander.String(), missing=colander.drop)
     activityArn = colander.SchemaNode(colander.String())
     taskToken = colander.SchemaNode(colander.String(), missing=colander.drop)
+    reviewer = colander.SchemaNode(colander.String(), missing=colander.drop)
 
 
 class AnswerRequestSchema(colander.MappingSchema):

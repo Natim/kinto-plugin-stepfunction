@@ -25,6 +25,9 @@ that this plugin is expecting to have.
 AWS setup (lambda functions and step functions)
 -----------------------------------------------
 
+Lambda function: Post new record to Kinto
+_________________________________________
+
 First thing is to have a lambda function that posts a new record to Kinto with
 the `stateMachineArn` and the `activityArn`::
 
@@ -61,7 +64,9 @@ the `stateMachineArn` and the `activityArn`::
     };
 
 
-Test the lambda with the following event::
+Test the lambda with the following event (the bucket and collection need to
+exist already, check the `stepfunction/views.py` docstring for the schemas to
+use)::
 
     {
       "data": {
@@ -88,6 +93,71 @@ Test the lambda with the following event::
     }
 
 
+Lambda function: send an email to the reviewer
+______________________________________________
+
+Once the record is created in Kinto, we need to warn the reviewer that it's
+waiting for them. Create a new lambda function::
+
+    'use strict';
+    console.log('Loading function');
+    const aws = require('aws-sdk');
+    const ses = new aws.SES();
+
+    exports.handler = (event, context, callback) => {
+      const recipient = event.data.reviewer;
+      console.log('Send an email to', recipient);
+
+      var emailParams = {
+        Destination: {
+          ToAddresses: [
+            recipient
+          ]
+        },
+        Message: {
+          Subject: {
+            Data: 'Your review needed for an add-on!',
+            Charset: 'UTF-8'
+          },
+          Body: {
+            Html: {
+              Data: 'Hi!<br />' +
+                    'Can you please review the add-on, and then head to<br />' +
+                    'https://addons-shipping.github.io/stepfunction-dashboard/' +
+                    '<br />to accept or reject? Thanks!',
+              Charset: 'UTF-8'
+            }
+          }
+        },
+        Source: 'storage-team@dev.mozaws.net',
+        ReplyToAddresses: [
+          'storage-team@dev.mozaws.net'
+        ]
+      };
+
+      ses.sendEmail(emailParams, function (err, data) {
+        if (err) {
+          console.log(err, err.stack);
+          context.fail('Internal Error: The email could not be sent.');
+        } else {
+          console.log(data);
+          context.succeed('The email was successfully sent.');
+        }
+      });
+    };
+
+Test the lambda with the following event::
+
+    {
+      "data": {
+        "reviewer": "<reviewer email address here>"
+      }
+    }
+
+
+One stepfunction to bring them all and in aws bind them
+_______________________________________________________
+
 Now create a step function using this lambda::
 
     {
@@ -97,6 +167,11 @@ Now create a step function using this lambda::
             "PostToKinto": {
                 "Type": "Task",
                 "Resource": "arn:aws:lambda:us-west-2:927034868273:function:PostToKinto",
+                "Next": "NotifyReviewer"
+            },
+            "NotifyReviewer": {
+                "Type": "Task",
+                "Resource": "arn:aws:lambda:us-west-2:927034868273:function:AddonSigningNotifyReviewer",
                 "Next": "ManualStep"
             },
             "ManualStep": {
@@ -108,9 +183,36 @@ Now create a step function using this lambda::
         }
     }
 
-When running this stepfunction, you can provide the previously tested event to
-have the lambda create a new record on Kinto. Using this plugin, you can then
-POST a `FAIL` or `SUCCEED` to
+When running this stepfunction, you can use the following event to have the
+lambda create a new record on Kinto::
+
+    {
+      "data": {
+        "data": {
+          "subject": "Please review and sign-off (or not) on this addon",
+          "stateMachineArn": "arn:aws:states:us-west-2:927034868273:stateMachine:AddonSigningManualStep",
+          "activityArn": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest",
+          "reviewer": "<reviewer email address here>"
+        },
+        "permissions": {
+          "write": [
+            "portier:<reviewer email address here>"
+          ]
+        }
+      },
+      "options": {
+        "hostname": "kinto.dev.mozaws.net",
+        "port": 443,
+        "path": "/v1/buckets/stepfunction/collections/manual_steps/records",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Basic dGVzdDp0ZXN0"
+        }
+      }
+    }
+
+
+Using this plugin, you can then POST a `FAIL` or `SUCCEED` to
 https://kinto.dev.mozaws.net/v1/buckets/stepfunction/collection/manual_steps/records/<record_id>/stepfunction
 and it'll update the stepfunction execution accordingly.
 
