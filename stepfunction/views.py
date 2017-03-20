@@ -3,6 +3,11 @@
 {
   "type": "object",
   "properties": {
+    "subject": {
+      "type": "string",
+      "title": "Subject",
+      "description": "Step description"
+    },
     "stateMachineArn": {
       "type": "string",
       "title": "stateMachineArn",
@@ -18,11 +23,11 @@
       "title": "status",
       "description": "Status of the step, FAIL or SUCCEED",
       "enum": [
-        "Unanswered",
-        "Fail",
-        "Succeed"
+        "UNANSWERED",
+        "FAIL",
+        "SUCCEED"
       ],
-      "default": "Unanswered"
+      "default": "UNANSWERED"
     }
   }
 }
@@ -44,83 +49,44 @@ The POST body expects to have an "answer" key which is either "FAIL" or
 """
 
 import boto3
-from kinto.core import Service, logger
-from kinto.core.storage.exceptions import RecordNotFoundError
+import colander
+
+from cornice.validators import colander_body_validator
+from kinto.core import Service
+from kinto.core.errors import http_error, ERRORS
+from pyramid import httpexceptions
+
+
+from .aws import get_activity_arn, get_task_token
+from .storage import update_record
+from .validators import record_validator
+
 
 stepfunction = Service(
     name="stepfunction",
-    path='/buckets/stepfunction/collections/manual_steps/records/{record_id}/stepfunction',
+    path='/buckets/{bucket_id}/collections/{collection_id}/records/{record_id}/stepfunction',
     description="Stepfunction manual step")
 
 
-def get_answer_from_body(request):
-    """Return the answer if the body was properly parsed, or raise."""
-    try:
-        query = request.json
-    except ValueError as err:
-        raise Exception("The body couldn't be parsed to json: ".format(err))
-
-    answer = query.get('answer')
-    if answer is None:
-        raise Exception("The body needs an 'answer' (FAIL or SUCCEED)")
-    if answer not in ['FAIL', 'SUCCEED']:
-        raise Exception("The answer must be FAIL or SUCCEED")
-    return answer
+class RecordSchema(colander.MappingSchema):
+    id = colander.SchemaNode(colander.String())
+    activityArn = colander.SchemaNode(colander.String())
+    taskToken = colander.SchemaNode(colander.String(), missing=colander.drop)
 
 
-def get_activity_arn(record, client):
-    """Get the activityArn from the record, and check it's in the list of
-    activities waiting for an answer."""
-    # Get the list of activities for this stepfunction, and make sure the
-    # activityArn from the record is present in the list of activities waiting
-    # for an answer.
-    activity_arn = record.get('activityArn')
-    if activity_arn is None:
-        raise Exception("The record doesn't have an activityArn")
-    activity_list = client.list_activities()
-    activity_ARNs = [
-        activity['activityArn']
-        for activity in activity_list['activities']]
-    if activity_arn not in activity_ARNs:
-        raise Exception(
-            "The activiryArn doesn't correspond to a pending activity")
-    return activity_arn
+class AnswerRequestSchema(colander.MappingSchema):
+    answer = colander.SchemaNode(colander.String(),
+                                 validator=colander.OneOf(["FAIL", "SUCCEED"]),
+                                 required=True)
 
 
-def get_task_token(activity_arn, client):
-    """Get the task token for an activity given its arn."""
-    task_token = client.get_activity_task(
-        activityArn=activity_arn,
-        workerName='kinto-plugin-stepfunction')
-    return task_token['taskToken']
-
-
-def update_record(storage, record):
-    """Save the record in the database."""
-    storage.update(
-        object_id=record['id'],
-        collection_id="record",
-        parent_id="/buckets/stepfunction/collections/manual_steps",
-        record=record)
-
-
-@stepfunction.post()
+@stepfunction.post(schema=AnswerRequestSchema(),
+                   validators=(colander_body_validator, record_validator(RecordSchema())))
 def post_manual_step(request):
     # Get the record.
-    record_id = request.matchdict['record_id']
+    answer = request.validated['answer']
+    record = request.validated['record']
     try:
-        record = request.registry.storage.get(
-            object_id=record_id,
-            collection_id="record",
-            parent_id="/buckets/stepfunction/collections/manual_steps")
-    except RecordNotFoundError as error:
-        return {"error": "Record not found"}
-
-    try:
-        # Get the answer from the POST request's body.
-        answer = get_answer_from_body(request)
-        print("answer:", answer)
-
         # Set up an AWS stepfunction client.
         access_key, secret_key = request.registry.aws_credentials
         client = boto3.client(
@@ -139,7 +105,7 @@ def post_manual_step(request):
             task_token = get_task_token(activity_arn, client)
             print("Got task token:", task_token)
             record['taskToken'] = task_token
-            update_record(request.registry.storage, record)
+            update_record(request, record)
 
         # Post a succeed or fail to the stepfunction's activity.
         if answer == "FAIL":
@@ -155,6 +121,8 @@ def post_manual_step(request):
                 taskToken=task_token,
                 output='{"message": "signed off"}')
             record['status'] = "SUCCEED"
-        update_record(request.registry.storage, record)
+        update_record(request, record)
     except Exception as err:
-        return {"error": err}
+        raise http_error(httpexceptions.HTTPServiceUnavailable,
+                         errno=ERRORS.BACKEND,
+                         message=err)
