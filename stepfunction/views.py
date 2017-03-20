@@ -52,7 +52,7 @@ from kinto.core.errors import http_error, ERRORS
 from pyramid import httpexceptions
 
 
-from .s3 import get_activity_arn, get_task_token
+from .aws import get_activity_arn, get_task_token
 from .storage import update_record
 from .validators import record_validator
 
@@ -100,7 +100,7 @@ def post_manual_step(request):
             task_token = get_task_token(activity_arn, client)
             print("Got task token:", task_token)
             record['taskToken'] = task_token
-            update_record(request.registry.storage, record)
+            update_record(request, record)
 
         # Post a succeed or fail to the stepfunction's activity.
         if answer == "FAIL":
@@ -116,7 +116,7 @@ def post_manual_step(request):
                 taskToken=task_token,
                 output='{"message": "signed off"}')
             record['status'] = "SUCCEED"
-        update_record(request.registry.storage, record)
+        update_record(request, record)
     except Exception as err:
         raise http_error(httpexceptions.HTTPServiceUnavailable,
                          errno=ERRORS.BACKEND,
