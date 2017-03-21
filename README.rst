@@ -25,11 +25,13 @@ that this plugin is expecting to have.
 AWS setup (lambda functions and step functions)
 -----------------------------------------------
 
-Lambda function: Post new record to Kinto
-_________________________________________
+Lambda function: Post new records to Kinto
+__________________________________________
 
-First thing is to have a lambda function that posts a new record to Kinto with
-the `stateMachineArn` and the `activityArn`::
+First thing is to have a lambda function that posts new records to Kinto for
+each manual step (for each reviewer) with the `stateMachineArn` and the
+`activityArn`. The following lambda is a very generic node function that posts
+a request::
 
     'use strict';
 
@@ -73,11 +75,12 @@ use)::
         "data": {
           "subject": "Please review and sign-off (or not) on this addon",
           "stateMachineArn": "arn:aws:states:us-west-2:927034868273:stateMachine:AddonSigningManualStep",
-          "activityArn": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest"
+          "activityArn": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest",
+          "reviewer": "<reviewer email address here>"
         },
         "permissions": {
           "write": [
-            "portier:email@example.com"
+            "portier:<reviewer email address here>"
           ]
         }
       },
@@ -105,14 +108,12 @@ waiting for them. Create a new lambda function::
     const ses = new aws.SES();
 
     exports.handler = (event, context, callback) => {
-      const recipient = event.data.reviewer;
-      console.log('Send an email to', recipient);
+      const recipients = event;
+      console.log('Send an email to', recipients);
 
       var emailParams = {
         Destination: {
-          ToAddresses: [
-            recipient
-          ]
+          ToAddresses: recipients
         },
         Message: {
           Subject: {
@@ -148,11 +149,7 @@ waiting for them. Create a new lambda function::
 
 Test the lambda with the following event::
 
-    {
-      "data": {
-        "reviewer": "<reviewer email address here>"
-      }
-    }
+    [<first email here>, <second email here>]
 
 
 One stepfunction to bring them all and in aws bind them
@@ -161,49 +158,98 @@ _______________________________________________________
 Now create a step function using this lambda::
 
     {
-        "Comment": "A test using a manual step",
+        "Comment": "Ask for add-on reviews before signing them",
         "StartAt": "PostToKinto",
         "States": {
             "PostToKinto": {
                 "Type": "Task",
                 "Resource": "arn:aws:lambda:us-west-2:927034868273:function:PostToKinto",
-                "Next": "NotifyReviewer"
+                "Next": "NotifyReviewers"
             },
-            "NotifyReviewer": {
+            "NotifyReviewers": {
                 "Type": "Task",
+                "InputPath": "$..reviewer",
                 "Resource": "arn:aws:lambda:us-west-2:927034868273:function:AddonSigningNotifyReviewer",
-                "Next": "ManualStep"
+                "Next": "WaitForReviews"
             },
-            "ManualStep": {
-                "Type": "Task",
-                "Resource": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest",
-                "TimeoutSeconds": 3600,
+            "WaitForReviews": {
+                "Type": "Parallel",
+                "Branches": [
+                    {
+                        "StartAt": "Reviewer1",
+                        "States": {
+                            "Reviewer1": {
+                                "Type": "Task",
+                                "Resource": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest",
+                                "TimeoutSeconds": 3600,
+                                "End": true
+                            }
+                        }
+                    },
+                    {
+                        "StartAt": "Reviewer2",
+                        "States": {
+                            "Reviewer2": {
+                                "Type": "Task",
+                                "Resource": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest",
+                                "TimeoutSeconds": 3600,
+                                "End": true
+                            }
+                        }
+                    }
+                ],
                 "End": true
             }
         }
     }
 
 When running this stepfunction, you can use the following event to have the
-lambda create a new record on Kinto::
+lambda create a record for each reviewer on Kinto::
 
     {
       "data": {
-        "data": {
-          "subject": "Please review and sign-off (or not) on this addon",
-          "stateMachineArn": "arn:aws:states:us-west-2:927034868273:stateMachine:AddonSigningManualStep",
-          "activityArn": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest",
-          "reviewer": "<reviewer email address here>"
+        "defaults": {
+          "method": "POST",
+          "path": "/v1/buckets/stepfunction/collections/manual_steps/records"
         },
-        "permissions": {
-          "write": [
-            "portier:<reviewer email address here>"
-          ]
-        }
+        "requests": [
+          {
+            "body": {
+              "data": {
+                "subject": "Please review and sign-off (or not) on this addon",
+                "stateMachineArn": "arn:aws:states:us-west-2:927034868273:stateMachine:AddonSigningManualStep",
+                "activityArn": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest",
+                "reviewer": "<first reviewer email address here>"
+              },
+              "permissions": {
+                "write": [
+                  "portier:<first reviewer email address here>"
+                ]
+              }
+            }
+          },
+          {
+            "body": {
+              "data": {
+                "subject": "Please review and sign-off (or not) on this addon",
+                "stateMachineArn": "arn:aws:states:us-west-2:927034868273:stateMachine:AddonSigningManualStep",
+                "activityArn": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest",
+                "reviewer": "<second reviewer email address here>"
+              },
+              "permissions": {
+                "write": [
+                  "portier:<second reviewer email address here>"
+                ]
+              }
+            }
+          }
+        ]
       },
       "options": {
         "hostname": "kinto.dev.mozaws.net",
         "port": 443,
         "path": "/v1/buckets/stepfunction/collections/manual_steps/records",
+        "path": "/v1/batch",
         "method": "POST",
         "headers": {
           "Authorization": "Basic dGVzdDp0ZXN0"
