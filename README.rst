@@ -170,35 +170,43 @@ Now create a step function using this lambda::
                 "Type": "Task",
                 "InputPath": "$..reviewer",
                 "Resource": "arn:aws:lambda:us-west-2:927034868273:function:AddonSigningNotifyReviewer",
+                "Next": "CountReviewsNeeded",
+                "ResultPath": "$.notified"
+            },
+            "CountReviewsNeeded": {
+                "Type": "Task",
+                "Resource": "arn:aws:lambda:us-west-2:927034868273:function:ListLength",
+                "InputPath": "$..reviewer",
+                "ResultPath": "$.reviews",
                 "Next": "WaitForReviews"
             },
             "WaitForReviews": {
-                "Type": "Parallel",
-                "Branches": [
+                "Type": "Choice",
+                "Choices": [
                     {
-                        "StartAt": "Reviewer1",
-                        "States": {
-                            "Reviewer1": {
-                                "Type": "Task",
-                                "Resource": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest",
-                                "TimeoutSeconds": 3600,
-                                "End": true
-                            }
-                        }
-                    },
-                    {
-                        "StartAt": "Reviewer2",
-                        "States": {
-                            "Reviewer2": {
-                                "Type": "Task",
-                                "Resource": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest",
-                                "TimeoutSeconds": 3600,
-                                "End": true
-                            }
-                        }
+                        "Variable": "$.reviews",
+                        "NumericGreaterThan": 0,
+                        "Next": "WaitForReview"
                     }
                 ],
-                "End": true
+                "Default": "Reviewed"
+            },
+            "WaitForReview": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest",
+                "TimeoutSeconds": 3600,
+                "ResultPath": "$.reviewed",
+                "Next": "UpdateReviews"
+            },
+            "UpdateReviews": {
+                "Type": "Task",
+                "Resource": "arn:aws:lambda:us-west-2:927034868273:function:SubtractOne",
+                "InputPath": "$.reviews",
+                "ResultPath": "$.reviews",
+                "Next": "WaitForReviews"
+            },
+            "Reviewed": {
+                "Type": "Succeed"
             }
         }
     }
