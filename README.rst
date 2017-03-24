@@ -311,7 +311,7 @@ lambda create a record for each reviewer on Kinto::
       "stateMachineArn": "arn:aws:states:us-west-2:927034868273:stateMachine:AddonSigning",
       "activityArn": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest",
       "url": "<url of the add-on XPI to sign>",
-      "checksum": "<sha256 of the url>"
+      "checksum": "<sha256 of the add-on>"
     }
 
 
