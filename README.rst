@@ -244,16 +244,19 @@ Now create a step function using those lambda functions::
             "BuildDataForKinto": {
                 "Type": "Task",
                 "Resource": "arn:aws:lambda:us-west-2:927034868273:function:BuildDataForKinto",
-                "Next": "PostToKinto"
+                "Next": "PostToKinto",
+                "ResultPath": "$.requests"
             },
             "PostToKinto": {
                 "Type": "Task",
+                "InputPath": "$.requests",
                 "Resource": "arn:aws:lambda:us-west-2:927034868273:function:PostToKinto",
-                "Next": "NotifyReviewers"
+                "Next": "NotifyReviewers",
+                "ResultPath": "$.postedToKinto"
             },
             "NotifyReviewers": {
                 "Type": "Task",
-                "InputPath": "$..reviewer",
+                "InputPath": "$.reviewers",
                 "Resource": "arn:aws:lambda:us-west-2:927034868273:function:AddonSigningNotifyReviewer",
                 "Next": "CountReviewsNeeded",
                 "ResultPath": "$.notified"
@@ -261,7 +264,7 @@ Now create a step function using those lambda functions::
             "CountReviewsNeeded": {
                 "Type": "Task",
                 "Resource": "arn:aws:lambda:us-west-2:927034868273:function:ListLength",
-                "InputPath": "$..reviewer",
+                "InputPath": "$.reviewers",
                 "ResultPath": "$.reviews",
                 "Next": "WaitForReviews"
             },
@@ -274,7 +277,7 @@ Now create a step function using those lambda functions::
                         "Next": "WaitForReview"
                     }
                 ],
-                "Default": "Reviewed"
+                "Default": "SignAddon"
             },
             "WaitForReview": {
                 "Type": "Task",
@@ -290,8 +293,11 @@ Now create a step function using those lambda functions::
                 "ResultPath": "$.reviews",
                 "Next": "WaitForReviews"
             },
-            "Reviewed": {
-                "Type": "Succeed"
+            "SignAddon": {
+                "Type": "Task",
+                "Resource": "arn:aws:lambda:us-west-2:927034868273:function:addons_sign-xpi",
+                "ResultPath": "$.signed",
+                "End": true
             }
         }
     }
@@ -303,7 +309,9 @@ lambda create a record for each reviewer on Kinto::
       "subject": "Please review and sign-off (or not) on this addon",
       "reviewers": ["<email1@example.com>", "<email2@example.com>"],
       "stateMachineArn": "arn:aws:states:us-west-2:927034868273:stateMachine:AddonSigning",
-      "activityArn": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest"
+      "activityArn": "arn:aws:states:us-west-2:927034868273:activity:ManualStepTest",
+      "url": "<url of the add-on XPI to sign>",
+      "checksum": "<sha256 of the url>"
     }
 
 
